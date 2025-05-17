@@ -1,0 +1,82 @@
+version: "3.3"
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--entrypoints.web.address=:80"
+      - "--providers.docker=true"
+      - "--api.dashboard=true"
+      - "--log.level=DEBUG"
+      - "--providers.docker.swarmMode=true"
+      - "--api.insecure=true"
+    ports:
+      - "80:80"
+      - "8080:8080" # Панель управления Traefik
+    configs:
+      - source: users_admin
+        target: /users_admin.htpasswd
+      - source: users_user
+        target: /users_user.htpasswd
+      - source: users_common
+        target: /users_common.htpasswd
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - functions
+  gateway:
+    image: ghcr.io/openfaas/gateway:0.27.12
+    networks:
+      - functions
+    environment:
+      functions_provider_url: "http://faas-swarm:8080/"
+      read_timeout: "5m5s" # Maximum time to read HTTP request
+      write_timeout: "5m5s" # Maximum time to write HTTP response
+      upstream_timeout: "5m" # Maximum duration of upstream function call - should be more than read_timeout and write_timeout
+      dnsrr: "true" # Temporarily use dnsrr in place of VIP while issue persists on PWD
+      faas_nats_address: "nats"
+      faas_nats_port: 4222
+      direct_functions: "true" # Functions are invoked directly over the overlay network
+      direct_functions_suffix: ""
+      basic_auth: "${BASIC_AUTH:-false}"
+      secret_mount_path: "/run/secrets/"
+      scale_from_zero: "true" # Enable if you want functions to scale from 0/0 to min replica count upon invoke
+      max_idle_conns: 1024
+      max_idle_conns_per_host: 1024
+      auth_proxy_url: "${AUTH_URL:-}"
+      auth_proxy_pass_body: "false"
+    deploy:
+      resources:
+        reservations:
+          memory: 100M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 20
+        window: 380s
+      placement:
+        constraints:
+          - "node.platform.os == linux"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gateway.rule=PathPrefix(`/`) || PathPrefix(`/ui`)"
+      - "traefik.http.routers.gateway.entrypoints=web"
+      - "traefik.http.routers.gateway.priority=1"
+      - "traefik.http.routers.root.service=gateway"
+      # /node → вызывает только функции принадлежащие node
+      - "traefik.http.routers.admin.rule=PathPrefix(`/function/node`)"
+      - "traefik.http.routers.admin.entrypoints=web"
+      - "traefik.http.routers.admin.priority=100"
+      - "traefik.http.routers.admin.middlewares=auth-admin"
+      - "traefik.http.routers.admin.service=gateway"
+      - "traefik.http.middlewares.auth-admin.basicauth.usersfile=/users_admin.htpasswd"
+      # /user → вызывает только функции принадлежащие user
+      - "traefik.http.routers.user.rule=PathPrefix(`/function/user`)"
+      - "traefik.http.routers.user.entrypoints=web"
+      - "traefik.http.routers.user.middlewares=auth-user"
+      - "traefik.http.routers.user.priority=100"
+      - "traefik.http.routers.user.service=gateway"
+      - "traefik.http.middlewares.auth-user.basicauth.usersfile=/users_user.htpasswd"
+      - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+    secrets:
+      - basic-auth-user
+      - basic-auth-password
