@@ -1,5 +1,6 @@
 version: "3.3"
 services:
+
   traefik:
     image: traefik:v2.10
     command:
@@ -9,6 +10,7 @@ services:
       - "--log.level=DEBUG"
       - "--providers.docker.swarmMode=true"
       - "--api.insecure=true"
+
     ports:
       - "80:80"
       - "8080:8080" # Панель управления Traefik
@@ -23,7 +25,10 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     networks:
       - functions
+
   gateway:
+    #        ports:
+    #            - 8080:8080
     image: ghcr.io/openfaas/gateway:0.27.12
     networks:
       - functions
@@ -46,6 +51,8 @@ services:
       auth_proxy_pass_body: "false"
     deploy:
       resources:
+        # limits:   # Enable if you want to limit memory usage
+        #     memory: 200M
         reservations:
           memory: 100M
       restart_policy:
@@ -56,27 +63,237 @@ services:
       placement:
         constraints:
           - "node.platform.os == linux"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.gateway.rule=PathPrefix(`/`) || PathPrefix(`/ui`)"
-      - "traefik.http.routers.gateway.entrypoints=web"
-      - "traefik.http.routers.gateway.priority=1"
-      - "traefik.http.routers.root.service=gateway"
-      # /node → вызывает только функции принадлежащие node
-      - "traefik.http.routers.admin.rule=PathPrefix(`/function/node`)"
-      - "traefik.http.routers.admin.entrypoints=web"
-      - "traefik.http.routers.admin.priority=100"
-      - "traefik.http.routers.admin.middlewares=auth-admin"
-      - "traefik.http.routers.admin.service=gateway"
-      - "traefik.http.middlewares.auth-admin.basicauth.usersfile=/users_admin.htpasswd"
-      # /user → вызывает только функции принадлежащие user
-      - "traefik.http.routers.user.rule=PathPrefix(`/function/user`)"
-      - "traefik.http.routers.user.entrypoints=web"
-      - "traefik.http.routers.user.middlewares=auth-user"
-      - "traefik.http.routers.user.priority=100"
-      - "traefik.http.routers.user.service=gateway"
-      - "traefik.http.middlewares.auth-user.basicauth.usersfile=/users_user.htpasswd"
-      - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.gateway.rule=PathPrefix(`/`) || PathPrefix(`/ui`)"
+        - "traefik.http.routers.gateway.entrypoints=web"
+        - "traefik.http.routers.gateway.priority=1"
+        - "traefik.http.routers.root.service=gateway"
+
+        # /node → вызывает только функции принадлежащие node
+        - "traefik.http.routers.admin.rule=PathPrefix(`/function/node`)"
+        - "traefik.http.routers.admin.entrypoints=web"
+        - "traefik.http.routers.admin.priority=100"
+        - "traefik.http.routers.admin.middlewares=auth-admin"
+        - "traefik.http.routers.admin.service=gateway"
+        - "traefik.http.middlewares.auth-admin.basicauth.usersfile=/users_admin.htpasswd"
+
+        # /user → вызывает только функции принадлежащие user
+        - "traefik.http.routers.user.rule=PathPrefix(`/function/user`)"
+        - "traefik.http.routers.user.entrypoints=web"
+        - "traefik.http.routers.user.middlewares=auth-user"
+        - "traefik.http.routers.user.priority=100"
+        - "traefik.http.routers.user.service=gateway"
+        - "traefik.http.middlewares.auth-user.basicauth.usersfile=/users_user.htpasswd"
+        - "traefik.http.services.gateway.loadbalancer.server.port=8080"
     secrets:
       - basic-auth-user
       - basic-auth-password
+
+  # auth service provide basic-auth plugin for system APIs
+  basic-auth-plugin:
+    image: ghcr.io/openfaas/basic-auth:0.25.5
+    networks:
+      - functions
+    environment:
+      secret_mount_path: "/run/secrets/"
+      user_filename: "basic-auth-user"
+      pass_filename: "basic-auth-password"
+    deploy:
+      placement:
+        constraints:
+          - "node.role == manager"
+          - "node.platform.os == linux"
+      resources:
+        # limits:   # Enable if you want to limit memory usage
+        #     memory: 100M
+        reservations:
+          memory: 50M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 20
+        window: 380s
+    secrets:
+      - basic-auth-user
+      - basic-auth-password
+    labels:
+      - "traefik.enable=false"
+
+  # Docker Swarm provider
+  faas-swarm:
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    image: vanmor78/faas-swarm:latest
+    networks:
+      - functions
+    environment:
+      read_timeout: "5m5s" # set both here, and on your functions
+      write_timeout: "5m5s" # set both here, and on your functions
+      DOCKER_API_VERSION: "1.30"
+      basic_auth: "${BASIC_AUTH:-false}"
+      secret_mount_path: "/run/secrets/"
+    deploy:
+      placement:
+        constraints:
+          - "node.role == manager"
+          - "node.platform.os == linux"
+      resources:
+        # limits:   # Enable if you want to limit memory usage
+        #     memory: 100M
+        reservations:
+          memory: 100M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 20
+        window: 380s
+    secrets:
+      - basic-auth-user
+      - basic-auth-password
+    labels:
+      - "traefik.enable=false"
+
+  nats:
+    image: nats-streaming:0.17.0
+    # Uncomment the following port mappings if you wish to expose the
+    # NATS client and/or management ports you must also add `-m 8222` to the command
+    # ports:
+    #     - 4222:4222
+    #     - 8222:8222
+    command: "--store memory --cluster_id faas-cluster"
+    networks:
+      - functions
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+        reservations:
+          memory: 50M
+      placement:
+        constraints:
+          - "node.platform.os == linux"
+    labels:
+      - "traefik.enable=false"
+
+  queue-worker:
+    image: ghcr.io/openfaas/queue-worker:0.14.1
+    networks:
+      - functions
+    environment:
+      max_inflight: "1"
+      ack_wait: "5m5s" # Max duration of any async task / request
+      basic_auth: "${BASIC_AUTH:-false}"
+      secret_mount_path: "/run/secrets/"
+      gateway_invoke: "true"
+      faas_gateway_address: "gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+        reservations:
+          memory: 20M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 20
+        window: 380s
+      placement:
+        constraints:
+          - "node.platform.os == linux"
+    secrets:
+      - basic-auth-user
+      - basic-auth-password
+    labels:
+      - "traefik.enable=false"
+
+  # End services
+
+  # Start monitoring
+
+  prometheus:
+    image: prom/prometheus:v2.11.0
+    environment:
+      no_proxy: "gateway"
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+      - source: prometheus_rules
+        target: /etc/prometheus/alert.rules.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    #   - '-storage.local.path=/prometheus'
+    ports:
+      - 9090:9090
+    networks:
+      - functions
+    deploy:
+      placement:
+        constraints:
+          - "node.role == manager"
+          - "node.platform.os == linux"
+      resources:
+        limits:
+          memory: 500M
+        reservations:
+          memory: 200M
+    labels:
+      - "traefik.enable=false"
+
+  alertmanager:
+    image: prom/alertmanager:v0.18.0
+    environment:
+      no_proxy: "gateway"
+    command:
+      - "--config.file=/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    networks:
+      - functions
+    # Uncomment the following port mapping if you wish to expose the Prometheus
+    # Alertmanager UI.
+    # ports:
+    #     - 9093:9093
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+        reservations:
+          memory: 20M
+      placement:
+        constraints:
+          - "node.role == manager"
+          - "node.platform.os == linux"
+    configs:
+      - source: alertmanager_config
+        target: /alertmanager.yml
+    secrets:
+      - basic-auth-password
+    labels:
+      - "traefik.enable=false"
+
+configs:
+  prometheus_config:
+    file: ./prometheus/prometheus.yml
+  prometheus_rules:
+    file: ./prometheus/alert.rules.yml
+  alertmanager_config:
+    file: ./prometheus/alertmanager.yml
+  users_admin:
+    file: ./users_admin.htpasswd
+  users_user:
+    file: ./users_user.htpasswd
+  users_common:
+    file: ./users_common.htpasswd
+
+networks:
+  functions:
+    driver: overlay
+    attachable: true
+    labels:
+      - "openfaas=true"
+
+secrets:
+  basic-auth-user:
+    external: true
+  basic-auth-password:
+    external: true
