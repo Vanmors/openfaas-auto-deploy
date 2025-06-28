@@ -2,7 +2,7 @@ FROM golang:1.13 as build
 ARG GO111MODULE=off
 RUN mkdir -p /go/src/github.com/openfaas/faas-swarm/
 WORKDIR /go/src/github.com/openfaas/faas-swarm
-COPY . .
+COPY .. .
 RUN gofmt -l -d $(find . -type f -name '*.go' -not -path "./vendor/*") \
     && CGO_ENABLED=0 go test $(go list ./... | grep -v /vendor/) -cover \
     && VERSION=$(git describe --all --exact-match `git rev-parse HEAD` | grep tags | sed 's/tags\///') \
