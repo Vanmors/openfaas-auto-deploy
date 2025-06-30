@@ -1,10 +1,15 @@
 # Архитектура проекта OpenFaaS Auto-Deploy
 
-Проект `openfaas-auto-deploy` реализует автоматизированное развертывание платформы OpenFaaS в Docker Swarm с поддержкой мультиарендности через реверс-прокси Traefik. Изначально проект разрабатывался для интеграции с системой управления облачными ресурсами Shipyard, но ввиду её текущей стадии разработки (июнь 2025) архитектура адаптирована для самостоятельного использования. Проект представлен на конкурс «SITWare» Университета ИТМО и направлен на упрощение DevOps-процессов в бессерверных вычислениях.
+Проект `openfaas-auto-deploy` реализует автоматизированное развертывание платформы OpenFaaS в Docker Swarm с поддержкой
+мультиарендности через реверс-прокси Traefik. Изначально проект разрабатывался для интеграции с системой управления
+облачными ресурсами Shipyard, но ввиду её текущей стадии разработки (июнь 2025) архитектура адаптирована для
+самостоятельного использования. Проект направлен на упрощение DevOps-процессов в бессерверных вычислениях.
 
 ## Обзор архитектуры
 
-Архитектура проекта основана на микросервисном подходе, где компоненты взаимодействуют через сеть Docker Swarm (`overlay`). Автоматизация развертывания выполняется с помощью Jenkins-скриптов, а мультиарендность обеспечивается Traefik. Система включает сервисы для управления функциями, мониторинга и маршрутизации запросов.
+Архитектура проекта основана на микросервисном подходе, где компоненты взаимодействуют через сеть Docker
+Swarm (`overlay`). Автоматизация развертывания выполняется с помощью Jenkins-скриптов, а мультиарендность обеспечивается
+Traefik. Система включает сервисы для управления функциями, мониторинга и маршрутизации запросов.
 
 ### Архитектурная схема
 
@@ -43,11 +48,13 @@ graph TD
     - Роль: Автоматизация развертывания OpenFaaS.
     - Скрипты: `create_openfaas_swarm.groovy` (развертывание) и `destroy_openfaas_swarm.groovy` (удаление).
     - Функции: Генерация данных, запуск `docker-compose.yml`, проверка и обработка ошибок.
-    - Файлы: [jobs/create_openfaas_swarm.groovy](../jobs/create_openfaas_swarm.groovy), [jobs/destroy_openfaas_swarm.groovy](../jobs/destroy_openfaas_swarm.groovy).
+    -
+    Файлы: [jobs/create_openfaas_swarm.groovy](../jobs/create_openfaas_swarm.groovy), [jobs/destroy_openfaas_swarm.groovy](../jobs/destroy_openfaas_swarm.groovy).
 
 2. **Traefik**:
     - Роль: Реверс-прокси для маршрутизации запросов и мультиарендности.
-    - Конфигурация: Использует Docker Swarm для автоматического обнаружения сервисов (`providers.docker.swarmMode=true`).
+    - Конфигурация: Использует Docker Swarm для автоматического обнаружения
+      сервисов (`providers.docker.swarmMode=true`).
     - Аутентификация: Файлы `.htpasswd` (`users_admin.htpasswd`, `users_user.htpasswd`) для изоляции арендаторов.
     - Маршруты:
         - `/` и `/ui`: Доступ к интерфейсу OpenFaaS.
@@ -57,7 +64,8 @@ graph TD
 
 3. **OpenFaaS Gateway**:
     - Роль: Центральный компонент для обработки запросов к функциям.
-    - Конфигурация: Использует образ `ghcr.io/openfaas/gateway:0.27.12`, поддерживает прямые вызовы функций (`direct_functions: true`).
+    - Конфигурация: Использует образ `ghcr.io/openfaas/gateway:0.27.12`, поддерживает прямые вызовы
+      функций (`direct_functions: true`).
     - Интеграция: Связан с `faas-swarm` и `nats` для маршрутизации и асинхронных задач.
 
 4. **faas-swarm**:
@@ -75,12 +83,15 @@ graph TD
 
 7. **Prometheus и Alertmanager**:
     - Роль: Мониторинг производительности и оповещения.
-    - Конфигурация: Prometheus (`prom/prometheus:v2.11.0`) собирает метрики, Alertmanager (`prom/alertmanager:v0.18.0`) отправляет уведомления.
-    - Файлы: [prometheus/prometheus.yml](../prometheus/prometheus.yml), [prometheus/alertmanager.yml](../prometheus/alertmanager.yml).
+    - Конфигурация: Prometheus (`prom/prometheus:v2.11.0`) собирает метрики, Alertmanager (`prom/alertmanager:v0.18.0`)
+      отправляет уведомления.
+    -
+    Файлы: [prometheus/prometheus.yml](../prometheus/prometheus.yml), [prometheus/alertmanager.yml](../prometheus/alertmanager.yml).
 
 8. **Docker Swarm**:
     - Роль: Оркестратор для управления сервисами и сетью `functions` (тип `overlay`).
-    - Конфигурация: Все сервисы размещаются на узлах с `node.platform.os == linux`, некоторые (например, `faas-swarm`) — только на менеджерах.
+    - Конфигурация: Все сервисы размещаются на узлах с `node.platform.os == linux`, некоторые (например, `faas-swarm`) —
+      только на менеджерах.
 
 ## Технические решения
 
@@ -90,7 +101,8 @@ graph TD
     - Преимущество: Упрощение DevOps-процессов, воспроизводимость.
 
 2. **Мультиарендность через Traefik**:
-    - Traefik обеспечивает изоляцию арендаторов через URL-пути (`/function/node`, `/function/user`) и базовую аутентификацию (`.htpasswd`).
+    - Traefik обеспечивает изоляцию арендаторов через URL-пути (`/function/node`, `/function/user`) и базовую
+      аутентификацию (`.htpasswd`).
     - Преимущество: Легковесный подход по сравнению с Kubernetes namespaces.
     - Подробности: [docs/multitenancy.md](multitenancy.md).
 
@@ -99,7 +111,8 @@ graph TD
     - Преимущество: Подходит для небольших кластеров и быстрого развертывания.
 
 4. **Актуализация образов**:
-    - Обновлены устаревшие образы OpenFaaS (например, `ghcr.io/openfaas/gateway:0.27.12`) и создан собственный `vanmor78/faas-swarm:latest`.
+    - Обновлены устаревшие образы OpenFaaS (например, `ghcr.io/openfaas/gateway:0.27.12`) и создан
+      собственный `vanmor78/faas-swarm:latest`.
     - Преимущество: Совместимость с современными системами.
 
 ## Поток данных
@@ -117,7 +130,9 @@ graph TD
 ## Потенциальная интеграция с Shipyard
 
 Хотя Shipyard находится в разработке, архитектура спроектирована с учётом её интеграции:
-- **Плагин Shipyard**: Структура репозитория (`assets`, `jobs`, `source`, `shipyard.yml`) адаптирована под требования Shipyard.
+
+- **Плагин Shipyard**: Структура репозитория (`assets`, `jobs`, `source`, `shipyard.yml`) адаптирована под требования
+  Shipyard.
 - **Jenkins-скрипты**: Могут быть интегрированы с Shipyard для управления облачными ресурсами.
 - **Мультиарендность**: Traefik может быть настроен для маршрутизации запросов к функциям, управляемым Shipyard.
 
@@ -140,4 +155,3 @@ graph TD
 - Конфигурация: [sources/docker-compose.yml](../sources/docker-compose.yml).
 - Мультиарендность: [docs/multitenancy.md](multitenancy.md).
 - Репозиторий: [https://github.com/Vanmors/openfaas-auto-deploy](https://github.com/Vanmors/openfaas-auto-deploy).
-- Контакты: ivan.morikov@example.com или создайте Issue в репозитории.
