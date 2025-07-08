@@ -31,13 +31,6 @@ pipeline {
         stage('Deploy OpenFaaS') {
             steps {
                 script {
-                    // Определяем архитектуру
-                    def arch = sh(script: "uname -m", returnStdout: true).trim()
-                    if (arch == "armv7l") {
-                        COMPOSE_FILE = "./source/faas/docker-compose.armhf.yml"
-                    } else if (arch == "aarch64") {
-                        COMPOSE_FILE = "./source/faas/docker-compose.arm64.yml"
-                    }
                     // Деплой OpenFaaS через Docker Swarm
                     sh "docker stack deploy func --compose-file ${COMPOSE_FILE}"
                 }
@@ -54,10 +47,10 @@ pipeline {
     }
     post {
         success {
-            echo "OpenFaaS успешно развернут 🚀"
+            echo "OpenFaaS успешно развернут"
         }
         failure {
-            echo "Ошибка при развертывании OpenFaaS ❌"
+            echo "Ошибка при развертывании OpenFaaS"
         }
     }
 }
